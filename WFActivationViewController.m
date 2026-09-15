@@ -328,9 +328,10 @@
     self.activateButton.enabled = NO;
     self.loadingOverlay.hidden = NO;
     [UIView animateWithDuration:[WolFoxProTheme transitionDuration] animations:^{ self.loadingOverlay.alpha = 1.0; }];
-    
-    self.timerLabel.text = @"•••";
-    [self finalizeActivation];
+
+    self.countdown = 3;
+    self.timerLabel.text = [NSString stringWithFormat:@"%ld", (long)self.countdown];
+    self.activationTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(tickTimer) userInfo:nil repeats:YES];
 }
 
 - (void)tickTimer {
