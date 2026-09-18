@@ -22,11 +22,20 @@ THEOS_INC="$THEOS/include"
 BUILD_DIR="$PROJECT_DIR/.wolfox-build"
 OUTPUT_DYLIB="$PROJECT_DIR/WolFox.dylib"
 WOLFOX_ARCHS="${WOLFOX_ARCHS:-arm64}"
+WOLFOX_LINKER="${WOLFOX_LINKER:-lld}"
 
 if [ "$WOLFOX_ARCHS" != "arm64" ]; then
     echo "❌ هذا مسار البناء المستقر يتطلب arm64 فقط؛ لا تُضم arm64e من دون Toolchain تدعمها فعلياً."
     exit 1
 fi
+
+case "$WOLFOX_LINKER" in
+    ld|lld) ;;
+    *)
+        echo "❌ رابط غير مدعوم: $WOLFOX_LINKER (المسموح: ld أو lld)."
+        exit 1
+        ;;
+esac
 
 if [ ! -d "$SDK_PATH" ]; then
     echo "❌ لم يتم العثور على iPhoneOS SDK داخل: $THEOS/sdks"
@@ -199,7 +208,7 @@ COMMON_FLAGS=(
 )
 
 BASE_LINK_FLAGS=(
-    -fuse-ld=lld
+    -fuse-ld="$WOLFOX_LINKER"
     -isysroot "$SDK_PATH"
     -miphoneos-version-min="$MIN_IOS"
     -dynamiclib

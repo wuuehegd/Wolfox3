@@ -1,4 +1,5 @@
 name: Build WolFox SafeBuildFix
+# CI retrigger after billing unlock: 2026-08-21
 
 on:
   push:

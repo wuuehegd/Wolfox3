@@ -630,6 +630,13 @@ static BOOL WFMasterProcessIsEligible(void) {
     expandBtn.accessibilityLabel = @"توسيع الخريطة إلى ملء الشاشة";
     [expandBtn addTarget:self action:@selector(expandMap) forControlEvents:UIControlEventTouchUpInside];
     [mapCard addSubview:expandBtn];
+
+    // Open the selected point in Apple Maps or Google Maps without embedding
+    // a provider API key in the tweak.
+    UIButton *externalMapsBtn = [self mapCircleBtn:@"arrow.triangle.turn.up.right.diamond.fill" x:mapCard.bounds.size.width - 106 y:mapCard.bounds.size.height - 54];
+    externalMapsBtn.accessibilityLabel = @"فتح الموقع في خرائط Apple أو Google";
+    [externalMapsBtn addTarget:self action:@selector(openSelectedLocationInMaps:) forControlEvents:UIControlEventTouchUpInside];
+    [mapCard addSubview:externalMapsBtn];
     
     // Locate Me Button (Fake Pin)
     UIButton *locateBtn = [self mapCircleBtn:@"location.fill" x:mapCard.bounds.size.width - 54 y:mapCard.bounds.size.height - 54];
@@ -870,6 +877,12 @@ static BOOL WFMasterProcessIsEligible(void) {
     [pinButton addTarget:self action:@selector(centerMapOnPin) forControlEvents:UIControlEventTouchUpInside];
     [container addSubview:pinButton];
 
+    UIButton *externalMapsButton = [self mapCircleBtn:@"arrow.triangle.turn.up.right.diamond.fill" x:0 y:0];
+    externalMapsButton.tag = 6206;
+    externalMapsButton.accessibilityLabel = @"فتح الموقع في خرائط Apple أو Google";
+    [externalMapsButton addTarget:self action:@selector(openSelectedLocationInMaps:) forControlEvents:UIControlEventTouchUpInside];
+    [container addSubview:externalMapsButton];
+
     [self.view addSubview:container];
     [self layoutExpandedMap];
     container.alpha = 0;
@@ -895,6 +908,7 @@ static BOOL WFMasterProcessIsEligible(void) {
     CGFloat controlsY = height - safeBottom - 50;
     [_expandedMapContainer viewWithTag:6203].frame = CGRectMake(12, controlsY, 44, 44);
     [_expandedMapContainer viewWithTag:6204].frame = CGRectMake(64, controlsY, 44, 44);
+    [_expandedMapContainer viewWithTag:6206].frame = CGRectMake(width - 108, controlsY, 44, 44);
     [_expandedMapContainer viewWithTag:6205].frame = CGRectMake(width - 56, controlsY, 44, 44);
 }
 
@@ -1480,6 +1494,88 @@ static BOOL WFMasterProcessIsEligible(void) {
         [self.mapView setCenterCoordinate:_currentPin.coordinate animated:YES];
         [self showToast:@"تم التمركز على الموقع المزيّف 📍"];
     }
+}
+
+- (BOOL)externalMapsCoordinate:(CLLocationCoordinate2D *)coordinate title:(NSString **)title {
+    if (_currentPin && CLLocationCoordinate2DIsValid(_currentPin.coordinate)) {
+        if (coordinate) *coordinate = _currentPin.coordinate;
+        if (title) *title = _currentPin.title.length ? _currentPin.title : @"موقع WolFox";
+        return YES;
+    }
+
+    CLLocation *real = [WolFoxProHookManager shared].lastRealLocation;
+    if (real && CLLocationCoordinate2DIsValid(real.coordinate)) {
+        if (coordinate) *coordinate = real.coordinate;
+        if (title) *title = @"الموقع الحالي";
+        return YES;
+    }
+    return NO;
+}
+
+- (void)openSelectedLocationInMaps:(UIButton *)sender {
+    CLLocationCoordinate2D coordinate;
+    NSString *title = nil;
+    if (![self externalMapsCoordinate:&coordinate title:&title]) {
+        [self showToast:@"حدد موقعاً أو انتظر وصول الموقع الحقيقي أولاً ❌"];
+        return;
+    }
+
+    UIAlertController *chooser = [UIAlertController alertControllerWithTitle:@"فتح الموقع"
+                                                                      message:@"اختر تطبيق الخرائط لبدء اتجاهات القيادة"
+                                                               preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    [chooser addAction:[UIAlertAction actionWithTitle:@"خرائط Apple"
+                                                style:UIAlertActionStyleDefault
+                                              handler:^(__unused UIAlertAction *action) {
+        [weakSelf openAppleMapsAtCoordinate:coordinate title:title];
+    }]];
+    [chooser addAction:[UIAlertAction actionWithTitle:@"خرائط Google"
+                                                style:UIAlertActionStyleDefault
+                                              handler:^(__unused UIAlertAction *action) {
+        [weakSelf openGoogleMapsAtCoordinate:coordinate];
+    }]];
+    [chooser addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = chooser.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = sender;
+        popover.sourceRect = sender.bounds;
+    }
+    [self presentViewController:chooser animated:YES completion:nil];
+}
+
+- (void)openAppleMapsAtCoordinate:(CLLocationCoordinate2D)coordinate title:(NSString *)title {
+    MKPlacemark *placemark = [[MKPlacemark alloc] initWithCoordinate:coordinate];
+    MKMapItem *destination = [[MKMapItem alloc] initWithPlacemark:placemark];
+    destination.name = title.length ? title : @"موقع WolFox";
+    NSDictionary *options = @{
+        MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving,
+        MKLaunchOptionsShowsTrafficKey: @YES
+    };
+    if (![destination openInMapsWithLaunchOptions:options]) {
+        [self showToast:@"تعذر فتح خرائط Apple ❌"];
+    }
+}
+
+- (void)openGoogleMapsAtCoordinate:(CLLocationCoordinate2D)coordinate {
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://www.google.com/maps/dir/"];
+    NSString *destination = [NSString stringWithFormat:@"%.8f,%.8f", coordinate.latitude, coordinate.longitude];
+    components.queryItems = @[
+        [NSURLQueryItem queryItemWithName:@"api" value:@"1"],
+        [NSURLQueryItem queryItemWithName:@"destination" value:destination],
+        [NSURLQueryItem queryItemWithName:@"travelmode" value:@"driving"],
+        [NSURLQueryItem queryItemWithName:@"dir_action" value:@"navigate"]
+    ];
+    NSURL *url = components.URL;
+    if (!url) {
+        [self showToast:@"تعذر تجهيز رابط خرائط Google ❌"];
+        return;
+    }
+    [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:^(BOOL success) {
+        if (!success) dispatch_async(dispatch_get_main_queue(), ^{
+            [self showToast:@"تعذر فتح خرائط Google ❌"];
+        });
+    }];
 }
 
 - (void)showRealLocation {
